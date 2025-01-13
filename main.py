@@ -20,33 +20,16 @@ async def main() -> None:
     loader.semaphore = asyncio.Semaphore(value=threads)
     loader.parse_method = parse_method
 
-    async with aiohttp.ClientSession(
-            connector=aiohttp.TCPConnector(
-                verify_ssl=None,
-                ssl=False,
-                use_dns_cache=False,
-                ttl_dns_cache=300,
-                limit=None
-            ),
-            headers={
-                'accept': '*/*',
-                'accept-language': 'ru,en;q=0.9,vi;q=0.8,es;q=0.7,cy;q=0.6',
-                'content-type': 'application/json',
-                'origin': 'https://claims.movementnetwork.xyz',
-                'referer': 'https://claims.movementnetwork.xyz'
-            }
-    ) as client:
-        tasks: list[asyncio.Task] = [
-            asyncio.create_task(
-                coro=check_account(
-                    client=client,
-                    account_data=current_account_data
-                )
+    tasks: list[asyncio.Task] = [
+        asyncio.create_task(
+            coro=check_account(
+                account_data=current_account_data
             )
-            for current_account_data in accounts_list
-        ]
+        )
+        for current_account_data in accounts_list
+    ]
 
-        await asyncio.gather(*tasks)
+    await asyncio.gather(*tasks)
 
 
 if __name__ == '__main__':
