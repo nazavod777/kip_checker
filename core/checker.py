@@ -1,6 +1,7 @@
+from pyuseragents import random as random_useragent
 import asyncio
 
-import aiohttp
+from curl_cffi.requests import Response, AsyncSession
 from eth_account import Account
 from loguru import logger
 from tenacity import retry
@@ -19,10 +20,8 @@ def log_retry_error(retry_state):
 
 class Checker:
     def __init__(self,
-                 client: aiohttp.ClientSession,
                  account_data: str,
                  account_address: str):
-        self.client: aiohttp.ClientSession = client
         self.account_data: str = account_data
         self.account_address: str = account_address
 
@@ -32,18 +31,28 @@ class Checker:
         total_balances: list = []
 
         try:
-            r: aiohttp.ClientResponse = await self.client.post(
+            client: AsyncSession = AsyncSession(impersonate='chrome124',
+                                                headers={
+                        'accept': '*/*',
+                        'accept-language': 'ru,en;q=0.9,vi;q=0.8,es;q=0.7,cy;q=0.6',
+                        'content-type': 'application/json',
+                        'origin': 'https://claims.movementnetwork.xyz',
+                        'referer': 'https://claims.movementnetwork.xyz',
+                                                    'user-agent': random_useragent()
+                    })
+            r: Response = await client.post(
                 url=f'https://asia-east2-kip-genesis-nft-4c1d8.cloudfunctions.net/getAllocations',
                 proxy=get_proxy(),
                 json={
                     'data': {
                         'walletAddress': self.account_address
                     }
-                }
+                },
+                timeout=5
             )
 
-            response_text: str = await r.text()
-            response_json: dict = await r.json(content_type=None)
+            response_text: str = r.text
+            response_json: dict = r.json()
 
             for current_balance in response_json['result']['allocations'].values():
                 if not current_balance['points']:
@@ -63,7 +72,7 @@ class Checker:
 
         except Exception as error:
             raise Exception(
-                f'{self.account_address} | Unexpected Error When Checking Eligible: {error}'
+                f'{self.account_address} | Unexpected Error When Getting Balances: {error}'
                 + (f', response: {response_text}' if response_text else '')
             ) from error
 
@@ -72,18 +81,33 @@ class Checker:
         response_text: None = None
 
         try:
-            r: aiohttp.ClientResponse = await self.client.post(
+            client: AsyncSession = AsyncSession(impersonate='chrome124',
+                                                headers={
+                                                    'accept': '*/*',
+                                                    'accept-language': 'ru,en;q=0.9,vi;q=0.8,es;q=0.7,cy;q=0.6',
+                                                    'content-type': 'application/json',
+                                                    'origin': 'https://claims.movementnetwork.xyz',
+                                                    'referer': 'https://claims.movementnetwork.xyz',
+                                                    'user-agent': random_useragent()
+                                                })
+            r: Response = await client.post(
                 url=f'https://asia-east2-kip-genesis-nft-4c1d8.cloudfunctions.net/getEligibility',
                 proxy=get_proxy(),
                 json={
                     'data': {
                         'walletAddress': self.account_address
                     }
-                }
+                },
+                timeout=5
             )
 
-            response_text: str = await r.text()
-            response_json: dict = await r.json(content_type=None)
+            response_text: str = r.text
+            response_json: dict = r.json()
+
+            if isinstance(response_json.get('error', None), dict) and response_json['error'].get('message', '') == 'INTERNAL' and response_json['error'].get('status', '') == 'INTERNAL':
+                logger.info(f'{self.account_address} | Rate Limited, sleeping 1 mins...')
+                await asyncio.sleep(delay=60)
+                raise Exception
 
             return True if response_json['result']['eligibility'] else False
 
@@ -130,7 +154,6 @@ class Checker:
 
 
 async def check_account(
-        client: aiohttp.ClientSession,
         account_data: str
 ) -> None:
     async with loader.semaphore:
@@ -161,7 +184,6 @@ async def check_account(
             return
 
         checker: Checker = Checker(
-            client=client,
             account_data=account_data,
             account_address=account_address
         )
